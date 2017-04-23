@@ -1,19 +1,27 @@
 package org.embulk.input.random_jdbc_schema;
 
 import java.util.List;
-import com.google.common.base.Optional;
-import org.embulk.config.TaskReport;
+import java.util.Locale;
+
 import org.embulk.config.Config;
 import org.embulk.config.ConfigDefault;
 import org.embulk.config.ConfigDiff;
 import org.embulk.config.ConfigSource;
 import org.embulk.config.Task;
+import org.embulk.config.TaskReport;
 import org.embulk.config.TaskSource;
+import org.embulk.spi.Column;
 import org.embulk.spi.Exec;
 import org.embulk.spi.InputPlugin;
+import org.embulk.spi.PageBuilder;
 import org.embulk.spi.PageOutput;
 import org.embulk.spi.Schema;
 import org.embulk.spi.SchemaConfig;
+import org.embulk.spi.time.Timestamp;
+import org.embulk.spi.time.TimestampFormatter;
+import org.joda.time.DateTime;
+import org.joda.time.DateTimeZone;
+import org.jruby.util.RubyDateFormat;
 
 public class RandomJdbcSchemaInputPlugin
         implements InputPlugin
@@ -21,23 +29,12 @@ public class RandomJdbcSchemaInputPlugin
     public interface PluginTask
             extends Task
     {
-        // configuration option 1 (required integer)
-        @Config("option1")
-        public int getOption1();
-
-        // configuration option 2 (optional string, null is not allowed)
-        @Config("option2")
-        @ConfigDefault("\"myvalue\"")
-        public String getOption2();
-
-        // configuration option 3 (optional string, null is allowed)
-        @Config("option3")
-        @ConfigDefault("null")
-        public Optional<String> getOption3();
-
-        // if you get schema from config
         @Config("columns")
         public SchemaConfig getColumns();
+        
+        @Config("numOfRow")
+        @ConfigDefault("1000")
+        public int getNumOfRow();
     }
 
     @Override
@@ -45,10 +42,10 @@ public class RandomJdbcSchemaInputPlugin
             InputPlugin.Control control)
     {
         PluginTask task = config.loadConfig(PluginTask.class);
-
+        
         Schema schema = task.getColumns().toSchema();
         int taskCount = 1;  // number of run() method calls
-
+        
         return resume(task.dump(), schema, taskCount, control);
     }
 
@@ -74,9 +71,29 @@ public class RandomJdbcSchemaInputPlugin
             PageOutput output)
     {
         PluginTask task = taskSource.loadTask(PluginTask.class);
+        int numOfRow = task.getNumOfRow();
+        final PageBuilder pageBuilder = new PageBuilder(Exec.getBufferAllocator(), schema, output);
 
-        // Write your code here :)
-        throw new UnsupportedOperationException("RandomJdbcSchemaInputPlugin.run method is not implemented yet");
+        for(int i = 0; i < numOfRow; i++){
+            for(int j = 0; j < schema.getColumnCount(); j++){
+            	Column column = schema.getColumn(j);
+            	if(column.getType().getName().equals("long")){
+            		pageBuilder.setLong(schema.getColumn(j), i);
+            	}else if(column.getType().getName().equals("double")){
+            		pageBuilder.setDouble(schema.getColumn(j), i);
+                }else if(column.getType().getName().equals("string")){
+            		pageBuilder.setString(schema.getColumn(j), "hoge");
+                }else if(column.getType().getName().equals("timestamp")){
+                	pageBuilder.setTimestamp(schema.getColumn(j), Timestamp.ofEpochSecond(System.currentTimeMillis() / 1000));
+                }else if(column.getType().getName().equals("boolean")){
+            		pageBuilder.setBoolean(schema.getColumn(j), false);
+                }
+            }
+            pageBuilder.addRecord();            
+        }	
+        pageBuilder.finish();
+        pageBuilder.close();
+        return Exec.newTaskReport();
     }
 
     @Override
